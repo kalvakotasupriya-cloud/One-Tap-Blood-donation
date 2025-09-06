@@ -1,0 +1,393 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+#include <time.h>
+#define MAX_DONORS 100
+#define MAX 100
+
+typedef struct {
+    char name[50];
+    char bloodGroup[5];
+    int amount;
+    char timestamp[30];
+} Record;
+
+Record donationStack[MAX];
+int top = -1;
+
+Record receivingQueue[MAX];
+int front = 0, rear = -1;
+
+
+typedef struct TreeNode {
+    int id;
+    char name[50];
+    char bloodType[5];
+    int age;
+    char address[100];
+    char phoneNumber[15];
+    char city[50];
+    struct TreeNode *left;
+    struct TreeNode *right;
+} TreeNode;
+
+void getCurrentTimestamp(char *buffer) {
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    strftime(buffer, 30, "%Y-%m-%d %H:%M:%S", t);
+}
+
+// City distance matrix
+const char *cities[] = {"New Delhi", "Mumbai", "Bangalore", "Kolkata", "Chennai", "Hyderabad", "Pune", "Ahmedabad", "Jaipur", "Lucknow"};
+int cityDistances[10][10] = {
+    {0, 1447, 2150, 1530, 2180, 1560, 1417, 933, 268, 512},
+    {1447, 0, 981, 2057, 1337, 709, 149, 523, 1148, 1367},
+    {2150, 981, 0, 1871, 347, 569, 840, 1462, 1982, 1929},
+    {1530, 2057, 1871, 0, 1670, 1496, 2057, 2016, 1571, 988},
+    {2180, 1337, 347, 1670, 0, 627, 914, 1706, 2188, 2050},
+    {1560, 709, 569, 1496, 627, 0, 597, 1436, 1661, 1332},
+    {1417, 149, 840, 2057, 914, 597, 0, 664, 1372, 1462},
+    {933, 523, 1462, 2016, 1706, 1436, 664, 0, 681, 1145},
+    {268, 1148, 1982, 1571, 2188, 1661, 1372, 681, 0, 585},
+    {512, 1367, 1929, 988, 2050, 1332, 1462, 1145, 585, 0}
+};
+int numCities = 10;
+
+int getCityIndex(char *city) {
+    for (int i = 0; i < numCities; i++)
+        if (strcmp(cities[i], city) == 0) return i;
+    return -1;
+}
+
+int calculateDistance(char *city1, char *city2) {
+    int idx1 = getCityIndex(city1), idx2 = getCityIndex(city2);
+    if (idx1 == -1 || idx2 == -1) return INT_MAX;
+    return cityDistances[idx1][idx2];
+}
+
+int isCompatible(char donorBT[], char recipientBT[]) {
+    if (strcmp(recipientBT, "AB+") == 0) return 1;
+    if (strcmp(recipientBT, "AB-") == 0)
+        return (!strcmp(donorBT, "A-") || !strcmp(donorBT, "B-") || !strcmp(donorBT, "AB-") || !strcmp(donorBT, "O-"));
+    if (strcmp(recipientBT, "A+") == 0)
+        return (!strcmp(donorBT, "A+") || !strcmp(donorBT, "A-") || !strcmp(donorBT, "O+") || !strcmp(donorBT, "O-"));
+    if (strcmp(recipientBT, "A-") == 0)
+        return (!strcmp(donorBT, "A-") || !strcmp(donorBT, "O-"));
+    if (strcmp(recipientBT, "B+") == 0)
+        return (!strcmp(donorBT, "B+") || !strcmp(donorBT, "B-") || !strcmp(donorBT, "O+") || !strcmp(donorBT, "O-"));
+    if (strcmp(recipientBT, "B-") == 0)
+        return (!strcmp(donorBT, "B-") || !strcmp(donorBT, "O-"));
+    if (strcmp(recipientBT, "O+") == 0)
+        return (!strcmp(donorBT, "O+") || !strcmp(donorBT, "O-"));
+    if (strcmp(recipientBT, "O-") == 0)
+        return (!strcmp(donorBT, "O-"));
+    return 0;
+}
+
+TreeNode *insertTreeNode(TreeNode *root, int id, char *name, char *bloodType, int age, char *address, char *phoneNumber, char *city) {
+    if (!root) {
+        TreeNode *newNode = malloc(sizeof(TreeNode));
+        newNode->id = id;
+        strcpy(newNode->name, name);
+        strcpy(newNode->bloodType, bloodType);
+        newNode->age = age;
+        strcpy(newNode->address, address);
+        strcpy(newNode->phoneNumber, phoneNumber);
+        strcpy(newNode->city, city);
+        newNode->left = newNode->right = NULL;
+        return newNode;
+    }
+    if (id < root->id)
+        root->left = insertTreeNode(root->left, id, name, bloodType, age, address, phoneNumber, city);
+    else
+        root->right = insertTreeNode(root->right, id, name, bloodType, age, address, phoneNumber, city);
+    return root;
+}
+
+TreeNode *findNodeById(TreeNode *root, int id) {
+    if (!root || root->id == id) return root;
+    if (id < root->id) return findNodeById(root->left, id);
+    return findNodeById(root->right, id);
+}
+
+TreeNode *deleteTreeNode(TreeNode *root, int id) {
+    if (!root) return root;
+    if (id < root->id)
+        root->left = deleteTreeNode(root->left, id);
+    else if (id > root->id)
+        root->right = deleteTreeNode(root->right, id);
+    else {
+        if (!root->left) {
+            TreeNode *temp = root->right;
+            free(root); return temp;
+        } else if (!root->right) {
+            TreeNode *temp = root->left;
+            free(root); return temp;
+        }
+        TreeNode *succ = root->right;
+        while (succ->left) succ = succ->left;
+        root->id = succ->id;
+        strcpy(root->name, succ->name);
+        strcpy(root->bloodType, succ->bloodType);
+        root->age = succ->age;
+        strcpy(root->address, succ->address);
+        strcpy(root->phoneNumber, succ->phoneNumber);
+        strcpy(root->city, succ->city);
+        root->right = deleteTreeNode(root->right, succ->id);
+    }
+    return root;
+}
+
+void collectCompatibleDonors(TreeNode *node, TreeNode *donors[], int distances[], int *count, char *recipientCity, char *recipientBT) {
+    if (!node) return;
+    if (isCompatible(node->bloodType, recipientBT)) {
+        distances[*count] = calculateDistance(node->city, recipientCity);
+        donors[*count] = node;
+        (*count)++;
+    }
+    collectCompatibleDonors(node->left, donors, distances, count, recipientCity, recipientBT);
+    collectCompatibleDonors(node->right, donors, distances, count, recipientCity, recipientBT);
+}
+
+void listNearestCompatibleDonors(TreeNode *root) {
+    char city[50], bloodType[5];
+    printf("Enter recipient's city: "); scanf(" %[^\n]", city);
+    printf("Enter recipient's blood type: "); scanf("%s", bloodType);
+    TreeNode *donors[MAX_DONORS];
+    int distances[MAX_DONORS], count = 0;
+
+    collectCompatibleDonors(root, donors, distances, &count, city, bloodType);
+
+    for (int i = 0; i < count-1; i++)
+        for (int j = 0; j < count-i-1; j++)
+            if (distances[j] > distances[j+1]) {
+                int d = distances[j]; distances[j] = distances[j+1]; distances[j+1] = d;
+                TreeNode *t = donors[j]; donors[j] = donors[j+1]; donors[j+1] = t;
+            }
+
+    printf("\nCompatible Donors (Nearest First):\n%-20s %-12s %-15s %-15s\n", "Name", "Blood Type", "City", "Phone");
+    for (int i = 0; i < count; i++)
+        printf("%-20s %-12s %-15s %-15s\n", donors[i]->name, donors[i]->bloodType, donors[i]->city, donors[i]->phoneNumber);
+
+    if (count == 0)
+        printf("No compatible donors found.\n");
+}
+
+void updateDonor(TreeNode *donor) {
+    if (!donor) {
+        printf("Donor not found.\n"); return;
+    }
+    int choice;
+    do {
+        printf("\nUpdate Menu for ID %d\n1.Name 2.BloodType 3.Age 4.Address 5.Phone 6.City 7.Done\nEnter choice: ", donor->id);
+        scanf("%d", &choice);
+        switch (choice) {
+            case 1: printf("Name: "); scanf(" %[^\n]", donor->name); break;
+            case 2: printf("Blood Type: "); scanf("%s", donor->bloodType); break;
+            case 3: printf("Age: "); scanf("%d", &donor->age); break;
+            case 4: printf("Address: "); scanf(" %[^\n]", donor->address); break;
+            case 5: printf("Phone: "); scanf("%s", donor->phoneNumber); break;
+            case 6: printf("City: "); scanf(" %[^\n]", donor->city); break;
+        }
+    } while (choice != 7);
+}
+
+void addRecipient(TreeNode **tree, int *idCounter) {
+    char name[50], bloodType[5], address[100], phone[15], city[50];
+    int age;
+    printf("Name: "); scanf(" %[^\n]", name);
+    printf("Blood Type: "); scanf("%s", bloodType);
+    printf("Age: "); scanf("%d", &age);
+    printf("Address: "); scanf(" %[^\n]", address);
+    printf("Phone: "); scanf("%s", phone);
+    printf("City: "); scanf(" %[^\n]", city);
+    *tree = insertTreeNode(*tree, (*idCounter)++, name, bloodType, age, address, phone, city);
+    printf("Recipient added.\n");
+}
+
+void updateRecipient(TreeNode *recipient) {
+    updateDonor(recipient);
+}
+
+// ========== Stack and Queue Operations ==========
+
+void donateBlood() {
+    if (top == MAX - 1) {
+        printf("Donation stack is full!\n");
+        return;
+    }
+
+    Record r;
+    printf("Enter donor's name: ");
+    scanf(" %[^\n]", r.name);
+    printf("Enter blood group: ");
+    scanf(" %s", r.bloodGroup);
+    printf("Enter amount donated (ml): ");
+    scanf("%d", &r.amount);
+
+    getCurrentTimestamp(r.timestamp);
+    donationStack[++top] = r;
+    printf("Donation recorded successfully!\n");
+}
+
+void receiveBlood() {
+    if (rear == MAX - 1) {
+        printf("Receiving queue is full!\n");
+        return;
+    }
+
+    Record r;
+    printf("Enter recipient's name: ");
+    scanf(" %[^\n]", r.name);
+    printf("Enter required blood group: ");
+    scanf(" %s", r.bloodGroup);
+    printf("Enter amount needed (ml): ");
+    scanf("%d", &r.amount);
+
+    getCurrentTimestamp(r.timestamp);
+    receivingQueue[++rear] = r;
+    printf("Receiving recorded successfully!\n");
+}
+
+void showDonations() {
+    if (top == -1) {
+        printf("\nNo donations yet.\n");
+        return;
+    }
+
+    printf("\n--- Blood Donations (Stack) ---\n");
+    printf("%-20s %-10s %-10s %-20s\n", "Name", "Group", "Amount", "Date & Time");
+    printf("--------------------------------------------------------------\n");
+
+    for (int i = top; i >= 0; i--) {
+        printf("%-20s %-10s %-10d %-20s\n",
+               donationStack[i].name,
+               donationStack[i].bloodGroup,
+               donationStack[i].amount,
+               donationStack[i].timestamp);
+    }
+}
+
+void showReceivings() {
+    if (rear < front) {
+        printf("\nNo blood receivings yet.\n");
+        return;
+    }
+
+    printf("\n--- Blood Receivings (Queue) ---\n");
+    printf("%-20s %-10s %-10s %-20s\n", "Name", "Group", "Amount", "Date & Time");
+    printf("--------------------------------------------------------------\n");
+
+    for (int i = front; i <= rear; i++) {
+        printf("%-20s %-10s %-10d %-20s\n",
+               receivingQueue[i].name,
+               receivingQueue[i].bloodGroup,
+               receivingQueue[i].amount,
+               receivingQueue[i].timestamp);
+    }
+}
+
+
+void preloadDonors(TreeNode **tree, int *idCounter) {
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Ravi Kumar", "O+", 30, "123 Street", "9876543210", "Mumbai");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Anita Singh", "A-", 28, "456 Avenue", "9123456780", "New Delhi");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Manoj Patel", "B+", 35, "789 Road", "9345612345", "Ahmedabad");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Priya Das", "AB-", 26, "Park Street", "9765432109", "Kolkata");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Deepak Nair", "O-", 32, "MG Road", "9988776655", "Chennai");
+
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Sunita Verma", "A+", 29, "Gandhi Nagar", "9812345678", "Lucknow");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Arjun Mehta", "B-", 34, "Sector 17", "9823456781", "Jaipur");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Neha Joshi", "AB+", 27, "Link Road", "9834567892", "Pune");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Karan Malhotra", "O+", 31, "MG Road", "9845678903", "Hyderabad");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Sanjana Rao", "A-", 25, "Hill View", "9856789014", "Bangalore");
+
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Ritika Sharma", "B+", 30, "Lake Side", "9867890125", "Mumbai");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Vivek Chauhan", "O-", 33, "Central Avenue", "9878901236", "New Delhi");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Shruti Jain", "AB-", 29, "Ring Road", "9889012347", "Ahmedabad");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Alok Tripathi", "A+", 36, "Main Bazaar", "9890123458", "Kolkata");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Divya Kapoor", "B-", 28, "Church Street", "9901234569", "Chennai");
+
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Rohan Singh", "O+", 32, "City Center", "9912345670", "Hyderabad");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Meena Iyer", "A-", 27, "West End", "9923456781", "Pune");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Sameer Khanna", "B+", 30, "Sunset Blvd", "9934567892", "Lucknow");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Pooja Batra", "AB+", 35, "Old Town", "9945678903", "Bangalore");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Gopal Verma", "O-", 26, "New Road", "9956789014", "Jaipur");
+
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Nikita Das", "A+", 24, "Market Street", "9967890125", "Mumbai");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Rahul Bose", "B-", 37, "North Block", "9978901236", "New Delhi");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Lata Aggarwal", "AB-", 29, "Green Park", "9989012347", "Ahmedabad");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Ajay Thakur", "O+", 31, "East End", "9990123458", "Kolkata");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Sneha Kulkarni", "B+", 33, "Town Hall", "9901122334", "Chennai");
+
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Yash Saxena", "O-", 34, "River Road", "9911223344", "Hyderabad");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Anjali Menon", "A-", 26, "Harbour Street", "9922334455", "Pune");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Harshita Rawat", "AB+", 27, "Ocean Drive", "9933445566", "Lucknow");
+    *tree = insertTreeNode(*tree, (*idCounter)++, "Nikhil Sharma", "B-", 36, "Metro Lane", "9944556677", "Bangalore");
+}
+
+
+void displayMenu() {
+    printf("\nBlood Donation Management System\n");
+    printf("1.Add Donor 2.Update Donor 3.Delete Donor 4.Find Compatible Donors\n");
+    printf("5.Add Recipient 6.Update Recipient 7.Delete Recipient 8.Exit\nEnter choice: ");
+}
+
+int main() {
+    TreeNode *donorTree = NULL;
+    TreeNode *recipientTree = NULL;
+    int idCounter = 1;
+
+    preloadDonors(&donorTree, &idCounter);
+
+    int choice, id;
+    TreeNode *found;
+
+    do {
+        printf("\n--- Blood Donation Management System ---\n");
+        printf("1. List Nearest Compatible Donors\n");
+        printf("2. Add Recipient\n");
+        printf("3. Update Recipient\n");
+        printf("4. Add Donor\n");
+        printf("5. Update Donor\n");
+        printf("6. Delete Donor\n");
+        printf("7. Donate Blood\n");
+        printf("8. Receive Blood\n");
+        printf("9. Show Donations\n");
+        printf("10. Show Receivings\n");
+        printf("0. Exit\n");
+        printf("Enter your choice: ");
+        scanf("%d", &choice);
+
+        switch (choice) {
+            case 1: listNearestCompatibleDonors(donorTree); break;
+            case 2: addRecipient(&recipientTree, &idCounter); break;
+            case 3:
+                printf("Enter Recipient ID: "); scanf("%d", &id);
+                found = findNodeById(recipientTree, id);
+                updateRecipient(found);
+                break;
+            case 4:
+                addRecipient(&donorTree, &idCounter); // reuse
+                break;
+            case 5:
+                printf("Enter Donor ID: "); scanf("%d", &id);
+                found = findNodeById(donorTree, id);
+                updateDonor(found);
+                break;
+            case 6:
+                printf("Enter Donor ID to delete: "); scanf("%d", &id);
+                donorTree = deleteTreeNode(donorTree, id);
+                printf("Donor deleted if ID existed.\n");
+                break;
+            case 7: donateBlood(); break;
+            case 8: receiveBlood(); break;
+            case 9: showDonations(); break;
+            case 10: showReceivings(); break;
+            case 0: printf("Exiting...\n"); break;
+            default: printf("Invalid choice.\n");
+        }
+    } while (choice != 0);
+
+    return 0;
+}
